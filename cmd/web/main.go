@@ -3,21 +3,26 @@ package main
 import (
 	"database/sql"
 	"flag"
+	"html/template"
 	"log/slog"
 	"net/http"
 	"os"
 
+	"github.com/go-playground/form/v4"
 	_ "github.com/go-sql-driver/mysql"
+	"snippetbox.keao.me/internal/models"
 )
 
 type application struct {
-	logger *slog.Logger
+	logger        *slog.Logger
+	snippets      *models.SnippetModel
+	templateCache map[string]*template.Template
+	formDecoder   *form.Decoder
 }
 
 func main() {
-
 	addr := flag.String("addr", ":4000", "HTTP network address")
-	dsn := flag.String("dsn", "momo:55555asd@/snippetbox?parseTime=true", "MySQL data source name")
+	dsn := flag.String("dsn", "momo:55555asd@tcp(192.168.1.101:3306)/snippetbox?parseTime=true", "MySQL data source name")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -30,15 +35,24 @@ func main() {
 
 	defer db.Close()
 
-	app := &application{
-		logger: logger,
+	templateCache, err := newTemplateCache()
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
 	}
 
-	mux := app.routes()
+	formDecoder := form.NewDecoder()
+
+	app := &application{
+		logger:        logger,
+		snippets:      &models.SnippetModel{DB: db},
+		templateCache: templateCache,
+		formDecoder:   formDecoder,
+	}
 
 	logger.Info("starting server", "addr", *addr)
 
-	err = http.ListenAndServe(*addr, mux)
+	err = http.ListenAndServe(*addr, app.routes())
 	logger.Error(err.Error())
 	os.Exit(1)
 }
